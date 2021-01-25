@@ -28,6 +28,7 @@
 //
 //
 
+#include <my_global.h>
 #include "mcsconfig.h"
 
 #define _FILE_OFFSET_BITS 64
