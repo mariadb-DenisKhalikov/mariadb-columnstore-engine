@@ -1,11 +1,13 @@
 local platforms = {
   develop: ['opensuse/leap:15', 'centos:7', 'centos:8', 'debian:9', 'debian:10', 'ubuntu:16.04', 'ubuntu:18.04', 'ubuntu:20.04'],
   'develop-5': ['opensuse/leap:15', 'centos:7', 'centos:8', 'debian:9', 'debian:10', 'ubuntu:16.04', 'ubuntu:18.04', 'ubuntu:20.04'],
+  'regression-run-utf8': ['opensuse/leap:15', 'centos:7', 'centos:8', 'debian:9', 'debian:10', 'ubuntu:16.04', 'ubuntu:18.04', 'ubuntu:20.04'],
 };
 
 local server_ref_map = {
   develop: '10.6 https://github.com/MariaDB/server',
   'develop-5': '10.5 https://github.com/MariaDB/server',
+  'regression-run-utf8': '10.5 https://github.com/MariaDB/server',
 };
 
 local builddir = 'verylongdirnameforverystrangecpackbehavior';
@@ -19,6 +21,7 @@ local platformMap(branch, platform) =
   local branch_cmakeflags_map = {
     develop: ' -DBUILD_CONFIG=mysql_release',
     'develop-5': ' -DBUILD_CONFIG=mysql_release',
+    'regression-run-utf8': ' -DBUILD_CONFIG=mysql_release',
   };
 
   local platform_map = {
@@ -401,12 +404,12 @@ local FinalPipeline(branch, event) = {
 
 [
   Pipeline(b, p, e)
-  for b in ['develop', 'develop-5']
+  for b in ['develop', 'develop-5', 'regression-run-utf8']
   for p in platforms[b]
   for e in ['pull_request', 'cron', 'custom']
 ] +
 [
   FinalPipeline(b, e)
-  for b in ['develop', 'develop-5']
+  for b in ['develop', 'develop-5', 'regression-run-utf8']
   for e in ['pull_request', 'cron', 'custom']
 ]
