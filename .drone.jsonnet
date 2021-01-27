@@ -7,7 +7,7 @@ local platforms = {
 local server_ref_map = {
   develop: '10.6 https://github.com/MariaDB/server',
   'develop-5': '10.5 https://github.com/MariaDB/server',
-  'regression-run-utf8': '10.5 https://github.com/MariaDB/server',
+  'regression-run-utf8': '10.6 https://github.com/MariaDB/server',
 };
 
 local builddir = 'verylongdirnameforverystrangecpackbehavior';
