@@ -140,6 +140,19 @@ constexpr int128_t Decimal128Null = TSInt128::NullValue;
 constexpr int128_t Decimal128Empty = TSInt128::EmptyValue;
 
 
+template<typename T>
+T scaleDivisor(const uint32_t scale)
+{
+    if (scale < 19)
+        return (T) mcs_pow_10[scale];
+    if (scale > 39)
+    {
+        std::string msg = "scaleDivisor called with a wrong scale: " + std::to_string(scale);
+        throw std::invalid_argument(msg);
+    }
+    return (T) mcs_pow_10_128[scale - 19];
+}
+
 /**
     @brief The function to produce scale multiplier/divisor for
     wide decimals.
@@ -152,14 +165,7 @@ inline void getScaleDivisor(T& divisor, const int8_t scale)
         std::string msg = "getScaleDivisor called with negative scale: " + std::to_string(scale);
         throw std::invalid_argument(msg);
     }
-    else if (scale < 19)
-    {
-        divisor = mcs_pow_10[scale];
-    }
-    else
-    {
-        divisor = mcs_pow_10_128[scale-19];
-    }
+    divisor = scaleDivisor<T>((uint32_t) scale);
 }
 
 struct lldiv_t_128
@@ -198,14 +204,20 @@ public:
     // Divide to the scale divisor with rounding
     int64_t toSInt64Round(uint32_t scale) const
     {
-        double dscale = scale;
-        int64_t tmp = value / pow(10.0, dscale);
-        int lefto = (value - tmp * pow(10.0, dscale)) / pow(10.0, dscale - 1);
-        if (tmp >= 0 && lefto > 4)
-            return tmp + 1;
-        if (tmp < 0 && lefto < -4)
-            return tmp - 1;
-        return tmp;
+        auto divisor = scaleDivisor<int64_t>(scale);
+        int64_t intg = value / divisor;
+        int64_t frac2 = 2 * (value % divisor);
+        if (frac2 >= divisor)
+          return intg + 1;
+        if (frac2 <= -divisor)
+          return intg - 1;
+        return intg;
+    }
+    uint64_t toUInt64Round(uint32_t scale) const
+    {
+        return value < 0 ?
+               0 :
+               static_cast<uint64_t>(toSInt64Round(scale));
     }
 };
 
@@ -249,6 +261,18 @@ public:
     explicit TDecimal128(const int128_t* valPtr)
        :TSInt128(valPtr)
     { }
+    uint64_t toUInt64Round(uint32_t scale) const
+    {
+        if (s128Value <= 0)
+            return 0;
+        auto divisor = scaleDivisor<uint128_t>(scale);
+        uint128_t intg = s128Value / divisor;
+        uint128_t frac2 = 2 * (s128Value % divisor);
+        if (frac2 >= divisor)
+            intg++;
+        return intg > numeric_limits<uint64_t>::max() ? numeric_limits<uint64_t>::max() :
+                                                        static_cast<uint64_t>(intg);
+    }
 };
 
 
@@ -513,17 +537,13 @@ class Decimal: public TDecimal128, public TDecimal64
             return TSInt128(roundedValue);
         }
 
-        int64_t narrowRound() const
+        int64_t decimal64ToSInt64Round() const
         {
-            int64_t scaleDivisor;
-            getScaleDivisor(scaleDivisor, scale);
-            int64_t intg = value / scaleDivisor;
-            int64_t frac2 = 2 * (value % scaleDivisor);
-            if (frac2 >= scaleDivisor)
-              return intg + 1;
-            if (frac2 <= -scaleDivisor)
-              return intg - 1;
-            return intg;
+            return TDecimal64::toSInt64Round((uint32_t) scale);
+        }
+        uint64_t decimal64ToUInt64Round() const
+        {
+            return TDecimal64::toUInt64Round((uint32_t) scale);
         }
 
         int64_t toSInt64Round() const
@@ -531,6 +551,12 @@ class Decimal: public TDecimal128, public TDecimal64
             return isWideDecimalTypeByPrecision(precision) ?
                 static_cast<int64_t>(getPosNegRoundedIntegralPart(4)) :
                 TDecimal64::toSInt64Round((uint32_t) scale);
+        }
+        uint64_t toUInt64Round() const
+        {
+            return isWideDecimalTypeByPrecision(precision) ?
+                   TDecimal128::toUInt64Round((uint32_t) scale) :
+                   TDecimal64::toUInt64Round((uint32_t) scale);
         }
 
         // MOD operator for an integer divisor to be used

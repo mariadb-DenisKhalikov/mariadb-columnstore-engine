@@ -1,4 +1,4 @@
-local events = ['pull_request', 'cron', 'custom'];
+local events = ['pull_request', 'cron'];
 
 local platforms = {
   develop: ['opensuse/leap:15', 'centos:7', 'centos:8', 'debian:9', 'debian:10', 'ubuntu:16.04', 'ubuntu:18.04', 'ubuntu:20.04'],
@@ -9,9 +9,14 @@ local platforms_arm = {
   develop: ['centos:8'],
 };
 
+local any_branch = '**';
+local platforms_custom = ['opensuse/leap:15', 'centos:7', 'centos:8', 'debian:9', 'debian:10', 'ubuntu:16.04', 'ubuntu:18.04', 'ubuntu:20.04'];
+local platforms_arm_custom = ['centos:8'];
+
 local server_ref_map = {
   develop: '10.6 https://github.com/MariaDB/server',
   'develop-5': '10.5 https://github.com/MariaDB/server',
+  '**': '10.6 https://github.com/MariaDB/server',
 };
 
 local builddir = 'verylongdirnameforverystrangecpackbehavior';
@@ -26,7 +31,7 @@ local rpm_build_deps = 'install -y systemd-devel git make gcc gcc-c++ libaio-dev
 local deb_build_deps = 'apt update && apt install --yes --no-install-recommends build-essential devscripts ccache equivs eatmydata ' +
                        '&& mk-build-deps debian/control -t "apt-get -y -o Debug::pkgProblemResolver=yes --no-install-recommends" -r -i';
 
-local platformMap(branch, platform) =
+local platformMap(platform) =
 
   local platform_map = {
     'opensuse/leap:15': 'zypper ' + rpm_build_deps + ' cmake libboost_system-devel libboost_filesystem-devel libboost_thread-devel libboost_regex-devel libboost_date_time-devel libboost_chrono-devel libboost_atomic-devel gcc-fortran && cmake ' + cmakeflags + ' -DRPM=sles15 && make -j$(nproc) package',
@@ -46,8 +51,10 @@ local Pipeline(branch, platform, event, arch='amd64') = {
   local init = if (pkg_format == 'rpm') then '/usr/lib/systemd/systemd' else 'systemd',
   local mtr_path = if (pkg_format == 'rpm') then '/usr/share/mysql-test' else '/usr/share/mysql/mysql-test',
   local socket_path = if (pkg_format == 'rpm') then '/var/lib/mysql/mysql.sock' else '/run/mysqld/mysqld.sock',
+  local config_path_prefix = if (pkg_format == 'rpm') then '/etc/my.cnf.d/' else '/etc/mysql/mariadb.conf.d/50-',
   local img = if (std.split(platform, ':')[0] == 'centos') then platform else 'romcheck/' + std.strReplace(platform, '/', '-'),
   local regression_ref = if (std.split(branch, '-')[0] == 'develop') then branch else 'develop-5',
+  local branchp = if (branch == '**') then '' else branch,
 
   local pipeline = self,
 
@@ -66,7 +73,7 @@ local Pipeline(branch, platform, event, arch='amd64') = {
         from_secret: 'aws_secret_access_key',
       },
       source: 'result',
-      target: branch + '/' + eventp + '/' + arch + '/' + std.strReplace(std.strReplace(platform, ':', ''), '/', '-'),
+      target: branchp + '/' + eventp + '/' + arch + '/' + std.strReplace(std.strReplace(platform, ':', ''), '/', '-'),
       delete: 'true',
     },
   },
@@ -179,7 +186,9 @@ local Pipeline(branch, platform, event, arch='amd64') = {
       // copy test data for regression test suite
       'docker exec -t regression$${DRONE_BUILD_NUMBER} bash -c "wget -qO- https://cspkg.s3.amazonaws.com/testData.tar.lz4 | lz4 -dc - | tar xf - -C mariadb-columnstore-regression-test/"',
       // set mariadb lower_case_table_names=1 config option
-      'docker exec -t regression$${DRONE_BUILD_NUMBER} sed -i "/^.mariadb.$/a lower_case_table_names=1" /etc/' + (if (pkg_format == 'deb') then 'mysql/mariadb.conf.d/50-' else 'my.cnf.d/') + 'server.cnf',
+      'docker exec -t regression$${DRONE_BUILD_NUMBER} sed -i "/^.mariadb.$/a lower_case_table_names=1" ' + config_path_prefix + 'server.cnf',
+      // set default client character set to utf-8
+      'docker exec -t regression$${DRONE_BUILD_NUMBER} sed -i "/^.client.$/a default-character-set=utf8" ' + config_path_prefix + 'client.cnf',
       // start mariadb and mariadb-columnstore services
       'docker exec -t regression$${DRONE_BUILD_NUMBER} systemctl start mariadb',
       'docker exec -t regression$${DRONE_BUILD_NUMBER} systemctl start mariadb-columnstore',
@@ -338,7 +347,7 @@ local Pipeline(branch, platform, event, arch='amd64') = {
                // "sed -i 's/BETA/GAMMA/' storage/columnstore/CMakeLists.txt",
                // Workaround till upstream removes 4535 workaround (workaround for workaround!)
                "sed -i '/MCOL-4535/,/^$/d' debian/autobake-deb.sh",
-               platformMap(branch, platform),
+               platformMap(platform),
                if (pkg_format == 'rpm') then 'createrepo .' else 'dpkg-scanpackages ../ | gzip > ../Packages.gz',
              ],
            },
@@ -423,4 +432,15 @@ local FinalPipeline(branch, event, arch='amd64') = {
   FinalPipeline(b, e)
   for b in std.objectFields(platforms)
   for e in events
+]
+
++
+
+[
+  Pipeline(any_branch, p, 'custom')
+  for p in platforms_custom
+] +
+[
+  Pipeline(any_branch, p, 'custom', 'arm64')
+  for p in platforms_arm_custom
 ]
